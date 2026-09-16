@@ -18,6 +18,7 @@ const TYPE_ICON = {
   zone: "⌂",
   facility: "🏭",
   reservoir: "💧",
+  water: "💧",
   control: "◈",
 };
 
@@ -187,16 +188,25 @@ function getCascadeEdgeKeys(result) {
 ========================================================= */
 
 /*
- * The original city coordinates are intentionally compact.
- * We transform them into a larger canvas and apply a
- * deterministic "repulsion" pass so nodes don't sit directly
- * on top of each other.
+ * The backend coordinates are small.
+ *
+ * We intentionally expand them onto a much larger visual
+ * canvas so the city network has room to breathe.
+ *
+ * Important:
+ * - Larger canvas
+ * - Larger minimum separation
+ * - Deterministic positioning
+ * - No random movement between renders
  */
 
 function buildDisplayPositions(nodes) {
   const positions = {};
 
-  if (!Array.isArray(nodes) || nodes.length === 0) {
+  if (
+    !Array.isArray(nodes) ||
+    nodes.length === 0
+  ) {
     return positions;
   }
 
@@ -206,10 +216,21 @@ function buildDisplayPositions(nodes) {
     y: Number(node?.y ?? 0),
   }));
 
-  const minX = Math.min(...raw.map((p) => p.x));
-  const maxX = Math.max(...raw.map((p) => p.x));
-  const minY = Math.min(...raw.map((p) => p.y));
-  const maxY = Math.max(...raw.map((p) => p.y));
+  const minX = Math.min(
+    ...raw.map((p) => p.x)
+  );
+
+  const maxX = Math.max(
+    ...raw.map((p) => p.x)
+  );
+
+  const minY = Math.min(
+    ...raw.map((p) => p.y)
+  );
+
+  const maxY = Math.max(
+    ...raw.map((p) => p.y)
+  );
 
   const rangeX =
     Math.max(1, maxX - minX);
@@ -218,28 +239,45 @@ function buildDisplayPositions(nodes) {
     Math.max(1, maxY - minY);
 
   /*
-   * Start with a spacious normalized layout.
+   * MUCH larger display canvas.
+   *
+   * Previously:
+   * 35 -> 205
+   *
+   * Now:
+   * 25 -> 285
    */
   const points = raw.map((point) => ({
     id: point.id,
 
     x:
-      35 +
-      ((point.x - minX) / rangeX) * 170,
+      25 +
+      ((point.x - minX) / rangeX) * 260,
 
     y:
-      35 +
-      ((point.y - minY) / rangeY) * 170,
+      25 +
+      ((point.y - minY) / rangeY) * 260,
   }));
 
   /*
    * Push nearby nodes apart.
    *
-   * This is intentionally deterministic, so the map doesn't
-   * jump around between renders.
+   * Previous minimum:
+   * 14
+   *
+   * New minimum:
+   * 23
    */
-  for (let iteration = 0; iteration < 16; iteration += 1) {
-    for (let i = 0; i < points.length; i += 1) {
+  for (
+    let iteration = 0;
+    iteration < 24;
+    iteration += 1
+  ) {
+    for (
+      let i = 0;
+      i < points.length;
+      i += 1
+    ) {
       for (
         let j = i + 1;
         j < points.length;
@@ -248,8 +286,11 @@ function buildDisplayPositions(nodes) {
         const a = points[i];
         const b = points[j];
 
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
+        const dx =
+          b.x - a.x;
+
+        const dy =
+          b.y - a.y;
 
         const distance =
           Math.sqrt(
@@ -257,7 +298,7 @@ function buildDisplayPositions(nodes) {
             dy * dy
           ) || 0.001;
 
-        const minimumDistance = 14;
+        const minimumDistance = 23;
 
         if (
           distance <
@@ -274,15 +315,36 @@ function buildDisplayPositions(nodes) {
           const ny =
             dy / distance;
 
-          a.x -= nx * push;
-          a.y -= ny * push;
+          a.x -=
+            nx * push;
 
-          b.x += nx * push;
-          b.y += ny * push;
+          a.y -=
+            ny * push;
+
+          b.x +=
+            nx * push;
+
+          b.y +=
+            ny * push;
         }
       }
     }
   }
+
+  /*
+   * Keep everything inside the visual canvas.
+   */
+  points.forEach((point) => {
+    point.x = Math.max(
+      15,
+      Math.min(295, point.x)
+    );
+
+    point.y = Math.max(
+      15,
+      Math.min(295, point.y)
+    );
+  });
 
   points.forEach((point) => {
     positions[point.id] = [
@@ -305,12 +367,15 @@ function getCoords(
     return displayPositions[node.id];
   }
 
-  const x = Number(node?.x ?? 0);
-  const y = Number(node?.y ?? 0);
+  const x =
+    Number(node?.x ?? 0);
+
+  const y =
+    Number(node?.y ?? 0);
 
   return [
-    35 + y * 4,
-    35 + x * 4,
+    25 + y * 4,
+    25 + x * 4,
   ];
 }
 
@@ -336,23 +401,26 @@ function createNodeIcon(
     "●";
 
   /*
-   * Operational infrastructure becomes smaller.
-   * Affected infrastructure gets more visual weight.
+   * Slightly reduce the icon size from the previous version.
+   *
+   * The map itself is now much more spacious, so we don't
+   * need enormous markers.
    */
-  const size = selected
-    ? 48
-    : incident
-      ? 46
-      : affected
-        ? 38
-        : 30;
+  const size =
+    selected
+      ? 48
+      : incident
+        ? 44
+        : affected
+          ? 34
+          : 28;
 
   const opacity =
     affected ||
     selected ||
     incident
       ? 1
-      : 0.72;
+      : 0.68;
 
   const border =
     selected
@@ -361,7 +429,7 @@ function createNodeIcon(
         ? "3px solid #a78bfa"
         : affected
           ? `2px solid ${color}`
-          : "2px solid rgba(255,255,255,0.65)";
+          : "2px solid rgba(255,255,255,0.55)";
 
   const shadow =
     selected
@@ -388,7 +456,7 @@ function createNodeIcon(
           display:flex;
           align-items:center;
           justify-content:center;
-          font-size:${selected ? 21 : affected ? 16 : 13}px;
+          font-size:${selected ? 21 : affected ? 15 : 12}px;
           color:#0b1026;
           font-weight:900;
           position:relative;
@@ -461,7 +529,7 @@ function createLabel(
         style="
           margin-top:${selected ? 27 : 22}px;
           margin-left:${selected ? -6 : 0}px;
-          background:rgba(8,11,30,.95);
+          background:rgba(8,11,30,.96);
           border:1px solid ${color};
           color:white;
           padding:5px 8px;
@@ -521,35 +589,45 @@ export default function CityMap({
       labels: null,
     });
 
-  const statusMap = useMemo(
-    () => buildStatusMap(result),
-    [result]
-  );
+  const statusMap =
+    useMemo(
+      () =>
+        buildStatusMap(result),
+      [result]
+    );
 
-  const affectedIds = useMemo(
-    () =>
-      getAffectedIds(
+  const affectedIds =
+    useMemo(
+      () =>
+        getAffectedIds(
+          result,
+          statusMap
+        ),
+      [
         result,
-        statusMap
-      ),
-    [result, statusMap]
-  );
+        statusMap,
+      ]
+    );
 
-  const cascadeEdgeKeys = useMemo(
-    () =>
-      getCascadeEdgeKeys(result),
-    [result]
-  );
+  const cascadeEdgeKeys =
+    useMemo(
+      () =>
+        getCascadeEdgeKeys(result),
+      [result]
+    );
 
-  const displayPositions = useMemo(
-    () =>
-      buildDisplayPositions(
-        Array.isArray(network?.nodes)
-          ? network.nodes
-          : []
-      ),
-    [network]
-  );
+  const displayPositions =
+    useMemo(
+      () =>
+        buildDisplayPositions(
+          Array.isArray(
+            network?.nodes
+          )
+            ? network.nodes
+            : []
+        ),
+      [network]
+    );
 
   /* =======================================================
      CREATE MAP
@@ -563,23 +641,25 @@ export default function CityMap({
       return;
     }
 
-    const map = L.map(
-      mapContainerRef.current,
-      {
-        crs: L.CRS.Simple,
+    const map =
+      L.map(
+        mapContainerRef.current,
+        {
+          crs: L.CRS.Simple,
 
-        minZoom: -2,
+          minZoom: -2,
 
-        maxZoom: 3,
+          maxZoom: 3,
 
-        zoomControl: false,
+          zoomControl: false,
 
-        attributionControl: false,
-      }
-    );
+          attributionControl:
+            false,
+        }
+      );
 
     map.setView(
-      [120, 120],
+      [150, 150],
       -1
     );
 
@@ -590,11 +670,24 @@ export default function CityMap({
       })
       .addTo(map);
 
-    mapRef.current = map;
+    mapRef.current =
+      map;
+
+    /*
+     * Give Leaflet time to calculate the container
+     * dimensions before the first render.
+     */
+    setTimeout(() => {
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+      }
+    }, 100);
 
     return () => {
       map.remove();
-      mapRef.current = null;
+
+      mapRef.current =
+        null;
     };
   }, []);
 
@@ -621,32 +714,41 @@ export default function CityMap({
     const grid =
       L.layerGroup();
 
+    /*
+     * Larger grid to match the new 300 x 300 map.
+     */
     for (
       let i = 0;
-      i <= 240;
-      i += 10
+      i <= 300;
+      i += 15
     ) {
       L.polyline(
         [
           [i, 0],
-          [i, 240],
+          [i, 300],
         ],
         {
-          color: "#273154",
+          color:
+            "#273154",
+
           weight: 1,
-          opacity: 0.25,
+
+          opacity: 0.18,
         }
       ).addTo(grid);
 
       L.polyline(
         [
           [0, i],
-          [240, i],
+          [300, i],
         ],
         {
-          color: "#273154",
+          color:
+            "#273154",
+
           weight: 1,
-          opacity: 0.25,
+
+          opacity: 0.18,
         }
       ).addTo(grid);
     }
@@ -670,17 +772,21 @@ export default function CityMap({
     }
 
     const nodes =
-      Array.isArray(network?.nodes)
+      Array.isArray(
+        network?.nodes
+      )
         ? network.nodes
         : [];
 
     const edges =
-      Array.isArray(network?.edges)
+      Array.isArray(
+        network?.edges
+      )
         ? network.edges
         : [];
 
     /*
-     * Remove old layers.
+     * Remove previous layers.
      */
     if (
       layersRef.current.edges
@@ -748,10 +854,6 @@ export default function CityMap({
             cascadeKey
           );
 
-        /*
-         * Affected network edges are emphasized.
-         * Normal infrastructure connections stay subtle.
-         */
         let edgeColor =
           isDependency
             ? "#6d5bb3"
@@ -764,24 +866,38 @@ export default function CityMap({
 
         let edgeOpacity =
           isDependency
-            ? 0.22
-            : 0.30;
+            ? 0.20
+            : 0.28;
 
         let dashArray =
           isDependency
             ? "5 7"
             : undefined;
 
-        if (isCascadePath) {
+        /*
+         * Cascade paths become visually prominent.
+         */
+        if (
+          isCascadePath
+        ) {
           edgeColor =
             "#a855f7";
 
-          edgeWeight = 3;
+          edgeWeight =
+            3;
 
-          edgeOpacity = 0.9;
+          edgeOpacity =
+            0.9;
 
-          dashArray = "7 5";
-        } else if (
+          dashArray =
+            "7 5";
+        }
+
+        /*
+         * Affected infrastructure gets slightly stronger
+         * connections without making the entire network glow.
+         */
+        else if (
           affectedIds.has(
             edge.source
           ) ||
@@ -792,12 +908,17 @@ export default function CityMap({
           edgeColor =
             "#8b5cf6";
 
-          edgeWeight = 2;
+          edgeWeight =
+            1.8;
 
-          edgeOpacity = 0.55;
+          edgeOpacity =
+            0.48;
 
-          if (isDependency) {
-            dashArray = "5 5";
+          if (
+            isDependency
+          ) {
+            dashArray =
+              "5 5";
           }
         }
 
@@ -807,6 +928,7 @@ export default function CityMap({
               source,
               displayPositions
             ),
+
             getCoords(
               target,
               displayPositions
@@ -936,23 +1058,26 @@ export default function CityMap({
         );
 
         /*
-         * IMPORTANT:
+         * IMPORTANT CHANGE
          *
-         * Don't display labels for every operational asset.
-         * This removes the giant wall of text from the map.
+         * Do NOT show labels for every affected asset.
          *
-         * Always label:
-         * - incident asset
-         * - selected asset
-         * - failed assets
-         * - degraded/critical/near-failure assets
+         * This was the main source of visual clutter.
+         *
+         * Labels now appear only for:
+         *
+         * 1. The incident asset
+         * 2. The currently selected asset
+         *
+         * Hovering any other asset still shows its tooltip.
          */
         const shouldShowLabel =
           isIncident ||
-          isSelected ||
-          isAffected;
+          isSelected;
 
-        if (shouldShowLabel) {
+        if (
+          shouldShowLabel
+        ) {
           L.marker(
             getCoords(
               node,
@@ -972,7 +1097,7 @@ export default function CityMap({
               zIndexOffset:
                 isSelected
                   ? 2900
-                  : 1400,
+                  : 2400,
             }
           ).addTo(
             labelLayer
@@ -998,7 +1123,9 @@ export default function CityMap({
        FIT MAP
     ===================================================== */
 
-    if (nodes.length > 0) {
+    if (
+      nodes.length > 0
+    ) {
       const bounds =
         L.latLngBounds(
           nodes.map(
@@ -1014,10 +1141,19 @@ export default function CityMap({
         bounds.isValid()
       ) {
         map.fitBounds(
-          bounds.pad(0.16)
+          bounds.pad(0.18)
         );
       }
     }
+
+    /*
+     * Fix Leaflet rendering after React/Vite layout updates.
+     */
+    setTimeout(() => {
+      if (mapRef.current) {
+        mapRef.current.invalidateSize();
+      }
+    }, 50);
 
   }, [
     network,
@@ -1032,16 +1168,22 @@ export default function CityMap({
   ]);
 
   /* =======================================================
-     RENDER
+     DISPLAY DATA
   ======================================================= */
 
   const eventCount =
-    Array.isArray(result?.events)
+    Array.isArray(
+      result?.events
+    )
       ? result.events.length
       : 0;
 
   const affectedCount =
     affectedIds.size;
+
+  /* =======================================================
+     RENDER
+  ======================================================= */
 
   return (
     <section className="map-card">
@@ -1081,44 +1223,74 @@ export default function CityMap({
           CASCADE INDICATOR
       ================================================= */}
 
-      {result && affectedCount > 0 && (
-        <div
-          style={{
-            position: "absolute",
-            left: "22px",
-            top: "88px",
-            zIndex: 500,
-            padding:
-              "7px 11px",
-            borderRadius: "8px",
-            background:
-              "rgba(15,18,45,.92)",
-            border:
-              "1px solid rgba(168,85,247,.45)",
-            color: "#ddd6fe",
-            fontSize: "11px",
-            fontWeight: 700,
-            boxShadow:
-              "0 5px 15px rgba(0,0,0,.2)",
-          }}
-        >
-          <span
+      {result &&
+        affectedCount > 0 && (
+          <div
             style={{
-              display:
-                "inline-block",
-              width: "7px",
-              height: "7px",
+              position:
+                "absolute",
+
+              left:
+                "22px",
+
+              top:
+                "88px",
+
+              zIndex:
+                500,
+
+              padding:
+                "7px 11px",
+
               borderRadius:
-                "50%",
+                "8px",
+
               background:
-                "#a855f7",
-              marginRight:
-                "7px",
+                "rgba(15,18,45,.92)",
+
+              border:
+                "1px solid rgba(168,85,247,.45)",
+
+              color:
+                "#ddd6fe",
+
+              fontSize:
+                "11px",
+
+              fontWeight:
+                700,
+
+              boxShadow:
+                "0 5px 15px rgba(0,0,0,.2)",
             }}
-          />
-          {affectedCount} affected assets
-        </div>
-      )}
+          >
+            <span
+              style={{
+                display:
+                  "inline-block",
+
+                width:
+                  "7px",
+
+                height:
+                  "7px",
+
+                borderRadius:
+                  "50%",
+
+                background:
+                  "#a855f7",
+
+                marginRight:
+                  "7px",
+              }}
+            />
+
+            {affectedCount}
+            {" "}
+            affected assets
+          </div>
+        )}
 
       {/* =================================================
           LEGEND

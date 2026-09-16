@@ -1419,3 +1419,47 @@ body {
   font-style: normal;
   font-weight: 800;
 }
+
+/* =========================================================
+   IMPROVED MAP MARKERS
+========================================================= */
+
+.digital-twin-node {
+  background: transparent !important;
+  border: 0 !important;
+  overflow: visible !important;
+}
+
+.digital-twin-node > div {
+  transform-origin: center;
+}
+
+.digital-twin-node:hover > div {
+  transform: scale(1.08);
+}
+
+.major-marker {
+  filter: saturate(1.08);
+}
+
+.incident-marker > div {
+  animation: incidentMarkerPulse 1.7s ease-out infinite;
+}
+
+@keyframes incidentMarkerPulse {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.06);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
+.map-marker-label {
+  pointer-events: none;
+}
