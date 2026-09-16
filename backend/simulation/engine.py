@@ -40,7 +40,10 @@ def _node_snapshot(node):
         "y": node["y"],
         "capacity": node["capacity"],
         "current_load": round(node["current_load"], 2),
-        "baseline_load": round(node.get("baseline_load", node["current_load"]), 2),
+        "baseline_load": round(
+            node.get("baseline_load", node["current_load"]),
+            2
+        ),
         "status": node["status"],
         "criticality": node["criticality"],
         "zone": node["zone"],
@@ -108,28 +111,16 @@ def _impact_factor(
     if incident_type == "power_failure":
 
         table = {
-            # Direct power dependencies
             ("substation", "signal"): 0.95,
             ("substation", "pump"): 0.55,
             ("substation", "hospital"): 0.35,
             ("substation", "control"): 0.30,
 
-            # Signal failure creates traffic pressure.
             ("signal", "road"): 0.32,
 
-            # Road disruption affects emergency access.
             ("road", "emergency"): 0.18,
-
-            # Road disruption affects hospital accessibility.
             ("road", "hospital"): 0.14,
 
-            # -------------------------------------------------
-            # THIRD CASCADE STAGE
-            # -------------------------------------------------
-            #
-            # Hospitals and emergency bases can create additional
-            # service pressure once their access is degraded.
-            #
             ("hospital", "emergency"): 0.10,
             ("emergency", "facility"): 0.08,
         }
@@ -139,7 +130,6 @@ def _impact_factor(
             0.05
         )
 
-        # Backup signal power blocks the direct signal cascade.
         if (
             source_type == "substation"
             and target_type == "signal"
@@ -147,7 +137,6 @@ def _impact_factor(
         ):
             return 0.0
 
-        # Backup hospital power blocks direct power degradation.
         if (
             source_type == "substation"
             and target_type == "hospital"
@@ -272,7 +261,6 @@ def _propagation_delay(source_type, target_type):
         ("road", "facility"): 8,
         ("road", "zone"): 9,
 
-        # Third-stage propagation delays
         ("hospital", "emergency"): 8,
         ("emergency", "facility"): 9,
 
@@ -356,11 +344,6 @@ def _reroute_roads(nodes, severity):
 
     for road in stressed:
 
-        utilization = road["current_load"] / max(
-            road["capacity"],
-            1
-        )
-
         if road["status"] == "failed":
             transfer_ratio = 0.28
         elif road["status"] == "near_failure":
@@ -385,18 +368,22 @@ def _reroute_roads(nodes, severity):
 
             target["current_load"] += share
 
+            previous_status = target["status"]
+
             target["status"] = _status(
                 target["current_load"],
                 target["capacity"]
             )
 
-            if target["status"] != "operational":
+            if target["status"] != previous_status:
                 changed.append(
-                    (
-                        target["id"],
-                        before,
-                        target["current_load"]
-                    )
+                    {
+                        "id": target["id"],
+                        "before_load": before,
+                        "after_load": target["current_load"],
+                        "previous_status": previous_status,
+                        "status": target["status"],
+                    }
                 )
 
     # Failed signals add a small amount of traffic pressure.
@@ -420,18 +407,22 @@ def _reroute_roads(nodes, severity):
 
             road["current_load"] += signal_pressure
 
+            previous_status = road["status"]
+
             road["status"] = _status(
                 road["current_load"],
                 road["capacity"]
             )
 
-            if road["status"] != "operational":
+            if road["status"] != previous_status:
                 changed.append(
-                    (
-                        road["id"],
-                        before,
-                        road["current_load"]
-                    )
+                    {
+                        "id": road["id"],
+                        "before_load": before,
+                        "after_load": road["current_load"],
+                        "previous_status": previous_status,
+                        "status": road["status"],
+                    }
                 )
 
     return changed
@@ -449,25 +440,192 @@ def _event(
     parent_id,
     depth,
     load_before,
+    cause_type=None,
+    impact_factor=None,
+    added_load=None,
+    mechanism=None,
 ):
+    utilization = (
+        node["current_load"]
+        / max(node["capacity"], 1)
+        * 100
+    )
+
     return {
         "time": round(time, 2),
+
         "node_id": node["id"],
         "node_name": node["name"],
+        "node_type": node["type"],
+
         "status": node["status"],
         "previous_status": previous_status,
+
         "reason": reason,
+
         "parent_id": parent_id,
         "depth": depth,
-        "load_before": round(load_before, 2),
-        "load_after": round(node["current_load"], 2),
-        "capacity": round(node["capacity"], 2),
+
+        "load_before": round(
+            load_before,
+            2
+        ),
+
+        "load_after": round(
+            node["current_load"],
+            2
+        ),
+
+        "load_change": round(
+            node["current_load"] - load_before,
+            2
+        ),
+
+        "capacity": round(
+            node["capacity"],
+            2
+        ),
+
         "utilization": round(
-            node["current_load"]
-            / max(node["capacity"], 1)
-            * 100,
+            utilization,
             1
         ),
+
+        # ---------------------------------------------------------
+        # Explanation fields for the frontend.
+        # ---------------------------------------------------------
+
+        "cause_type": cause_type,
+
+        "impact_factor": (
+            round(impact_factor, 3)
+            if isinstance(
+                impact_factor,
+                (int, float)
+            )
+            else None
+        ),
+
+        "added_load": (
+            round(added_load, 2)
+            if isinstance(
+                added_load,
+                (int, float)
+            )
+            else None
+        ),
+
+        "mechanism": mechanism,
+    }
+
+
+# ---------------------------------------------------------------------
+# EVENT EXPLANATION
+# ---------------------------------------------------------------------
+
+def _build_event_explanation(
+    parent,
+    target,
+    previous_status,
+    new_status,
+    added_load,
+    factor,
+):
+    source_name = parent["name"]
+    target_name = target["name"]
+
+    source_type = parent["type"]
+    target_type = target["type"]
+
+    utilization = (
+        target["current_load"]
+        / max(target["capacity"], 1)
+        * 100
+    )
+
+    # -------------------------------------------------------------
+    # Human-readable mechanism.
+    # -------------------------------------------------------------
+
+    mechanism_map = {
+        ("substation", "signal"):
+            "Loss of electrical supply reduced traffic-signal availability.",
+
+        ("substation", "pump"):
+            "Loss of electrical supply reduced water-pump operating capacity.",
+
+        ("substation", "hospital"):
+            "Loss of electrical supply reduced hospital support capacity.",
+
+        ("substation", "control"):
+            "Loss of electrical supply reduced control-system capacity.",
+
+        ("signal", "road"):
+            "Traffic-signal disruption increased pressure on the connected road corridor.",
+
+        ("road", "road"):
+            "Traffic was redistributed onto an alternative road corridor.",
+
+        ("road", "hospital"):
+            "Reduced road capacity increased pressure on hospital accessibility.",
+
+        ("road", "emergency"):
+            "Reduced road capacity increased emergency-route pressure.",
+
+        ("road", "facility"):
+            "Reduced road capacity increased access pressure around the facility.",
+
+        ("road", "zone"):
+            "Reduced road capacity increased access pressure for the zone.",
+
+        ("bridge", "road"):
+            "Bridge loss redirected traffic onto connected road corridors.",
+
+        ("pump", "water"):
+            "Pump disruption reduced water-system operating capacity.",
+
+        ("water", "zone"):
+            "Reduced water-system capacity increased service pressure in the zone.",
+
+        ("hospital", "emergency"):
+            "Hospital disruption increased pressure on emergency services.",
+
+        ("emergency", "facility"):
+            "Emergency-service pressure increased demand around the facility.",
+    }
+
+    mechanism = mechanism_map.get(
+        (source_type, target_type),
+        f"{source_name} propagated load pressure to {target_name}."
+    )
+
+    # -------------------------------------------------------------
+    # Status transition explanation.
+    # -------------------------------------------------------------
+
+    status_text = (
+        f"{target_name} changed from "
+        f"{previous_status.replace('_', ' ')} "
+        f"to {new_status.replace('_', ' ')}."
+    )
+
+    load_text = (
+        f"Load increased by {added_load:.1f} "
+        f"to {target['current_load']:.1f} "
+        f"against capacity {target['capacity']:.1f} "
+        f"({utilization:.1f}% utilization)."
+    )
+
+    reason = (
+        f"{mechanism} "
+        f"{status_text} "
+        f"{load_text}"
+    )
+
+    return {
+        "reason": reason,
+        "mechanism": mechanism,
+        "status_change": status_text,
     }
 
 
@@ -523,6 +681,8 @@ def simulate(
 
     previous_status = root["status"]
 
+    root_load_before = root["current_load"]
+
     if not _incident_seed(
         root,
         incident_type,
@@ -539,10 +699,14 @@ def simulate(
         time=0,
         node=root,
         previous_status=previous_status,
-        reason=f"Initial {incident_type} incident",
+        reason=f"Initial {incident_type.replace('_', ' ')} incident.",
         parent_id=None,
         depth=0,
-        load_before=root["baseline_load"],
+        load_before=root_load_before,
+        cause_type="incident",
+        impact_factor=1.0,
+        added_load=root["current_load"] - root_load_before,
+        mechanism="Initial incident applied to the selected asset.",
     )
 
     events.append(root_event)
@@ -556,8 +720,6 @@ def simulate(
     counter = 0
 
     for target_id in graph.successors(asset_id):
-
-        edge = graph.edges[asset_id, target_id]
 
         target = nodes[target_id]
 
@@ -602,8 +764,6 @@ def simulate(
 
         parent = nodes[parent_id]
 
-        # Avoid repeatedly processing the same node at the same
-        # or shallower cascade level.
         process_key = (
             target_id,
             depth
@@ -639,8 +799,7 @@ def simulate(
         ):
             factor *= 1.05
 
-        # Road-to-road propagation is intentionally controlled
-        # to prevent unrealistic city-wide congestion.
+        # Controlled road-to-road propagation.
         if (
             source_type == "road"
             and target_type == "road"
@@ -692,7 +851,6 @@ def simulate(
                 target["capacity"] * 0.90
             )
 
-        # Emergency route reduces resulting pressure.
         if (
             target_type == "emergency"
             and target.get("emergency_route")
@@ -710,10 +868,13 @@ def simulate(
 
         if target["status"] != previous_status:
 
-            reason = (
-                f"{parent['name']} caused "
-                f"{target['name']} to become "
-                f"{target['status']}"
+            explanation = _build_event_explanation(
+                parent=parent,
+                target=target,
+                previous_status=previous_status,
+                new_status=target["status"],
+                added_load=target["current_load"] - load_before,
+                factor=factor,
             )
 
             events.append(
@@ -721,32 +882,20 @@ def simulate(
                     time=current_time,
                     node=target,
                     previous_status=previous_status,
-                    reason=reason,
+                    reason=explanation["reason"],
                     parent_id=parent_id,
                     depth=depth,
                     load_before=load_before,
+                    cause_type=source_type,
+                    impact_factor=factor,
+                    added_load=target["current_load"] - load_before,
+                    mechanism=explanation["mechanism"],
                 )
             )
 
         # ---------------------------------------------------------
         # PROPAGATE TO NEXT LEVEL
         # ---------------------------------------------------------
-
-        #
-        # IMPORTANT:
-        # We continue propagation even when a node only becomes
-        # degraded/critical. This is what allows:
-        #
-        # S4
-        #   ↓
-        # Signals
-        #   ↓
-        # Roads
-        #   ↓
-        # Hospital / Emergency
-        #
-        # to form a third cascade layer.
-        #
 
         if target["status"] != "operational":
 
@@ -784,24 +933,36 @@ def simulate(
         severity
     )
 
-    # Record rerouting-induced changes.
-    for (
-        changed_id,
-        load_before,
-        load_after
-    ) in reroute_changes:
+    for change in reroute_changes:
 
-        node = nodes[changed_id]
+        node = nodes[change["id"]]
 
         events.append(
             _event(
                 time=min(duration, 20),
                 node=node,
-                previous_status="operational",
-                reason="Traffic rerouting increased road pressure",
+                previous_status=change["previous_status"],
+                reason=(
+                    f"Traffic rerouting increased pressure on "
+                    f"{node['name']}. "
+                    f"Load changed from "
+                    f"{change['before_load']:.1f} to "
+                    f"{change['after_load']:.1f} "
+                    f"against capacity {node['capacity']:.1f}."
+                ),
                 parent_id=None,
                 depth=3,
-                load_before=load_before,
+                load_before=change["before_load"],
+                cause_type="rerouting",
+                impact_factor=None,
+                added_load=(
+                    change["after_load"]
+                    - change["before_load"]
+                ),
+                mechanism=(
+                    "Traffic was redistributed from a stressed "
+                    "road onto an alternative corridor."
+                ),
             )
         )
 
@@ -826,6 +987,8 @@ def simulate(
                     8.0 * severity
                 )
 
+                previous_status = emergency["status"]
+
                 emergency["status"] = _status(
                     emergency["current_load"],
                     emergency["capacity"]
@@ -837,11 +1000,26 @@ def simulate(
                         _event(
                             time=12,
                             node=emergency,
-                            previous_status="operational",
-                            reason="Fire increased emergency response demand",
+                            previous_status=previous_status,
+                            reason=(
+                                f"Fire increased emergency demand. "
+                                f"{emergency['name']} changed from "
+                                f"{previous_status} to "
+                                f"{emergency['status']}."
+                            ),
                             parent_id=asset_id,
                             depth=2,
                             load_before=before,
+                            cause_type="fire_demand",
+                            impact_factor=None,
+                            added_load=(
+                                emergency["current_load"]
+                                - before
+                            ),
+                            mechanism=(
+                                "Fire increased emergency-response "
+                                "demand."
+                            ),
                         )
                     )
 
@@ -885,6 +1063,7 @@ def simulate(
             continue
 
         chain = []
+
         current = event
 
         visited = set()
@@ -901,8 +1080,26 @@ def simulate(
             chain.append({
                 "node_id": current["node_id"],
                 "node_name": current["node_name"],
+                "node_type": current.get("node_type"),
                 "status": current["status"],
+                "previous_status": current.get(
+                    "previous_status"
+                ),
                 "time": current["time"],
+                "reason": current.get("reason"),
+                "mechanism": current.get("mechanism"),
+                "load_before": current.get(
+                    "load_before"
+                ),
+                "load_after": current.get(
+                    "load_after"
+                ),
+                "capacity": current.get(
+                    "capacity"
+                ),
+                "utilization": current.get(
+                    "utilization"
+                ),
             })
 
             parent_id = current.get("parent_id")
@@ -917,7 +1114,6 @@ def simulate(
         chain.reverse()
 
         if chain:
-
             causal_chains.append(chain)
 
     # Remove duplicate chains.
@@ -935,6 +1131,7 @@ def simulate(
         if key not in seen_chains:
 
             seen_chains.add(key)
+
             unique_chains.append(chain)
 
     # -------------------------------------------------------------
@@ -945,10 +1142,35 @@ def simulate(
         {
             "time": event["time"],
             "node": event["node_id"],
+            "node_type": event.get("node_type"),
             "status": event["status"],
+            "previous_status": event.get(
+                "previous_status"
+            ),
             "depth": event["depth"],
             "parent": event["parent_id"],
             "reason": event["reason"],
+            "mechanism": event.get(
+                "mechanism"
+            ),
+            "load_before": event.get(
+                "load_before"
+            ),
+            "load_after": event.get(
+                "load_after"
+            ),
+            "capacity": event.get(
+                "capacity"
+            ),
+            "utilization": event.get(
+                "utilization"
+            ),
+            "added_load": event.get(
+                "added_load"
+            ),
+            "impact_factor": event.get(
+                "impact_factor"
+            ),
         }
         for event in sorted(
             events,
@@ -1041,17 +1263,29 @@ def compare_simulations(
     improvements = {}
 
     baseline_metrics = baseline["metrics"]
+
     intervention_metrics = intervention["metrics"]
 
     for key in baseline_metrics:
 
-        before = baseline_metrics.get(key, 0)
-        after = intervention_metrics.get(key, 0)
+        before = baseline_metrics.get(
+            key,
+            0
+        )
 
-        if isinstance(before, (int, float)) and isinstance(
+        after = intervention_metrics.get(
+            key,
+            0
+        )
+
+        if isinstance(
+            before,
+            (int, float)
+        ) and isinstance(
             after,
             (int, float)
         ):
+
             improvements[key] = round(
                 before - after,
                 2
@@ -1059,6 +1293,8 @@ def compare_simulations(
 
     return {
         "baseline": baseline,
+
         "intervention": intervention,
+
         "improvements": improvements,
     }
