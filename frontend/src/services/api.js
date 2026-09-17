@@ -1,4 +1,4 @@
-const API_BASE_URL = "/api";
+const API_BASE_URL = "https://projecty-xr9c.onrender.com";
 
 async function request(url, options = {}) {
   const response = await fetch(url, {
