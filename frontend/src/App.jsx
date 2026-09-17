@@ -1,4 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
 import IncidentPanel from "./components/IncidentPanel";
 import CityMap from "./components/CityMap";
@@ -67,11 +71,13 @@ export default function App() {
   useEffect(() => {
     async function loadInitialData() {
       try {
-        const [networkData, scenarioData] =
-          await Promise.all([
-            getNetwork(),
-            getScenarios(),
-          ]);
+        const [
+          networkData,
+          scenarioData,
+        ] = await Promise.all([
+          getNetwork(),
+          getScenarios(),
+        ]);
 
         setNetwork(networkData);
         setScenarios(scenarioData);
@@ -84,9 +90,11 @@ export default function App() {
 
         if (initialAssets.length > 0) {
           setAssetId((current) => {
-            const exists = initialAssets.some(
-              (asset) => asset.id === current
-            );
+            const exists =
+              initialAssets.some(
+                (asset) =>
+                  asset.id === current
+              );
 
             return exists
               ? current
@@ -121,10 +129,6 @@ export default function App() {
 
   /* =====================================================
      KEEP SELECTED ASSET VALID
-     
-     IMPORTANT:
-     Changing the scenario does NOT clear the
-     existing simulation result.
   ===================================================== */
 
   useEffect(() => {
@@ -135,7 +139,8 @@ export default function App() {
 
     const stillValid =
       assetsForIncident.some(
-        (asset) => asset.id === assetId
+        (asset) =>
+          asset.id === assetId
       );
 
     if (!stillValid) {
@@ -163,18 +168,15 @@ export default function App() {
 
     setLoading(true);
     setError("");
-
-    /*
-     * A fresh cascade replaces the previous
-     * intervention comparison.
-     */
     setComparison(null);
 
     try {
       const simulation =
         await runSimulation({
-          incident_type: incidentType,
-          asset_id: assetId,
+          incident_type:
+            incidentType,
+          asset_id:
+            assetId,
           severity,
           duration,
           interventions: [],
@@ -182,11 +184,6 @@ export default function App() {
 
       setResult(simulation);
 
-      /*
-       * Select the starting incident asset.
-       * This makes the causal panel immediately
-       * useful after running a simulation.
-       */
       const incidentNode =
         network.nodes.find(
           (node) =>
@@ -196,6 +193,7 @@ export default function App() {
       if (incidentNode) {
         setSelectedNode({
           ...incidentNode,
+
           status:
             simulation?.nodes?.find(
               (node) =>
@@ -247,8 +245,10 @@ export default function App() {
     try {
       const comparisonData =
         await compareSimulation({
-          incident_type: incidentType,
-          asset_id: assetId,
+          incident_type:
+            incidentType,
+          asset_id:
+            assetId,
           severity,
           duration,
           interventions,
@@ -258,10 +258,6 @@ export default function App() {
         comparisonData
       );
 
-      /*
-       * If the backend returns the intervention
-       * simulation, display it on the map/timeline.
-       */
       if (
         comparisonData?.intervention
       ) {
@@ -323,35 +319,40 @@ export default function App() {
       <header className="topbar">
 
         <div>
+
           <div className="brand-kicker">
-            PROJECT Y · URBAN RESILIENCE
+            CASCADIA · URBAN RESILIENCE
           </div>
 
           <h1>
-            Infrastructure Resilience
-            Digital Twin
+            Cascadia
           </h1>
 
           <p>
-            Explore cascading failures across
-            a synthetic critical infrastructure
-            network.
+            See how one infrastructure
+            failure can ripple across
+            an entire city.
           </p>
+
         </div>
 
         <div className="topbar-status">
+
           <span className="status-dot" />
 
           LIVE SIMULATION
+
         </div>
 
       </header>
 
+
       {/* =================================================
-          ERROR MESSAGE
+          ERROR
       ================================================= */}
 
       {error && (
+
         <div className="error-banner">
 
           <strong>
@@ -372,7 +373,9 @@ export default function App() {
           </button>
 
         </div>
+
       )}
+
 
       {/* =================================================
           MAIN DASHBOARD
@@ -380,46 +383,71 @@ export default function App() {
 
       <main className="dashboard-grid">
 
+
         {/* =================================================
             LEFT COLUMN
+
+            Scenario + What-if stay together.
+            This fills the vertical space naturally.
         ================================================= */}
 
         <aside className="left-column">
 
-          {/* INCIDENT SETUP */}
-
           <IncidentPanel
-            incidentType={incidentType}
+            incidentType={
+              incidentType
+            }
+
             setIncidentType={
               setIncidentType
             }
 
-            assetId={assetId}
-            setAssetId={setAssetId}
+            assetId={
+              assetId
+            }
 
-            severity={severity}
-            setSeverity={setSeverity}
+            setAssetId={
+              setAssetId
+            }
 
-            duration={duration}
-            setDuration={setDuration}
+            severity={
+              severity
+            }
+
+            setSeverity={
+              setSeverity
+            }
+
+            duration={
+              duration
+            }
+
+            setDuration={
+              setDuration
+            }
 
             assetsForIncident={
               assetsForIncident
             }
 
-            scenarios={scenarios}
+            scenarios={
+              scenarios
+            }
 
             onRunCascade={
               handleRunCascade
             }
 
-            loading={loading}
+            loading={
+              loading
+            }
           />
 
-          {/* INTERVENTIONS */}
 
           <InterventionPanel
-            scenarios={scenarios}
+            scenarios={
+              scenarios
+            }
 
             interventions={
               interventions
@@ -436,9 +464,36 @@ export default function App() {
             loading={
               compareLoading
             }
+
+            network={
+              network
+            }
+
+            result={
+              result
+            }
+
+            incidentType={
+              incidentType
+            }
+
+            severity={
+              severity
+            }
+
+            duration={
+              duration
+            }
+
+            assetId={
+              assetId
+            }
+
+            compact
           />
 
         </aside>
+
 
         {/* =================================================
             CENTER COLUMN
@@ -446,12 +501,14 @@ export default function App() {
 
         <section className="center-column">
 
-          {/* CITY MAP */}
-
           <CityMap
-            network={network}
+            network={
+              network
+            }
 
-            result={result}
+            result={
+              result
+            }
 
             selectedNode={
               selectedNode
@@ -463,17 +520,20 @@ export default function App() {
 
             incidentAsset={
               result?.scenario
-                ?.asset_id || null
+                ?.asset_id ||
+              null
             }
           />
 
-          {/* CASCADE TIMELINE */}
 
           <CascadeTimeline
-            result={result}
+            result={
+              result
+            }
           />
 
         </section>
+
 
         {/* =================================================
             RIGHT COLUMN
@@ -481,19 +541,22 @@ export default function App() {
 
         <aside className="right-column">
 
-          {/* METRICS */}
-
           <MetricsPanel
-            result={result}
+            result={
+              result
+            }
+
             comparison={
               comparison
             }
           />
 
-          {/* CAUSAL CHAIN */}
 
           <CausalChain
-            result={result}
+            result={
+              result
+            }
+
             selectedNode={
               selectedNode
             }
@@ -501,13 +564,79 @@ export default function App() {
 
         </aside>
 
+
+        {/* =================================================
+            REVERSE CASCADE
+
+            Full-width underneath the dashboard.
+            This is where the reverse-cascade feature
+            gets the space it actually needs.
+        ================================================= */}
+
+        <section className="reverse-cascade-row">
+
+          <InterventionPanel
+            scenarios={
+              scenarios
+            }
+
+            interventions={
+              interventions
+            }
+
+            setInterventions={
+              setInterventions
+            }
+
+            onCompare={
+              handleCompareIntervention
+            }
+
+            loading={
+              compareLoading
+            }
+
+            network={
+              network
+            }
+
+            result={
+              result
+            }
+
+            incidentType={
+              incidentType
+            }
+
+            severity={
+              severity
+            }
+
+            duration={
+              duration
+            }
+
+            assetId={
+              assetId
+            }
+
+            reverseOnly
+          />
+
+        </section>
+
       </main>
+
 
       {/* =================================================
           FOOTER
       ================================================= */}
 
       <footer className="app-footer">
+
+        <span>
+          Cascadia
+        </span>
 
         <span>
           Network{" "}
@@ -535,6 +664,7 @@ export default function App() {
   );
 }
 
+
 /* =========================================================
    INCIDENT → COMPATIBLE ASSETS
 ========================================================= */
@@ -543,7 +673,9 @@ function getAssetsForIncident(
   nodes = [],
   incidentType
 ) {
+
   const typeMap = {
+
     power_failure: [
       "substation",
     ],
@@ -566,14 +698,22 @@ function getAssetsForIncident(
       "road",
       "facility",
     ],
+
   };
 
-  const allowedTypes =
-    typeMap[incidentType] || [];
 
-  if (!Array.isArray(nodes)) {
+  const allowedTypes =
+    typeMap[
+      incidentType
+    ] || [];
+
+
+  if (
+    !Array.isArray(nodes)
+  ) {
     return [];
   }
+
 
   return nodes.filter(
     (node) =>
@@ -583,18 +723,24 @@ function getAssetsForIncident(
   );
 }
 
+
 /* =========================================================
-   LABEL HELPER
+   LABEL FORMATTER
 ========================================================= */
 
 function formatLabel(
   value = ""
 ) {
+
   return value
-    .replaceAll("_", " ")
+    .replaceAll(
+      "_",
+      " "
+    )
     .replace(
       /\b\w/g,
       (char) =>
         char.toUpperCase()
     );
+
 }

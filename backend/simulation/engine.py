@@ -15,13 +15,13 @@ def _status(load, capacity):
 
     utilization = load / capacity
 
-    if utilization <= 0.79:
+    if utilization <= 0.75:
         return "operational"
-    if utilization <= 0.99:
+    if utilization <= 0.90:
         return "degraded"
-    if utilization <= 1.10:
+    if utilization <= 1.05:
         return "critical"
-    if utilization <= 1.35:
+    if utilization <= 1.25:
         return "near_failure"
 
     return "failed"
@@ -111,18 +111,21 @@ def _impact_factor(
     if incident_type == "power_failure":
 
         table = {
-            ("substation", "signal"): 0.95,
-            ("substation", "pump"): 0.55,
-            ("substation", "hospital"): 0.35,
-            ("substation", "control"): 0.30,
+            ("substation", "signal"): 1.00,
+            ("substation", "pump"): 0.65,
+            ("substation", "hospital"): 0.45,
+            ("substation", "control"): 0.40,
 
-            ("signal", "road"): 0.32,
+            ("signal", "road"): 0.42,
 
-            ("road", "emergency"): 0.18,
-            ("road", "hospital"): 0.14,
+            ("road", "road"): 0.45,
+            ("road", "emergency"): 0.30,
+            ("road", "hospital"): 0.30,
+            ("road", "facility"): 0.24,
+            ("road", "zone"): 0.20,
 
-            ("hospital", "emergency"): 0.10,
-            ("emergency", "facility"): 0.08,
+            ("hospital", "emergency"): 0.20,
+            ("emergency", "facility"): 0.18,
         }
 
         factor = table.get(
@@ -153,16 +156,17 @@ def _impact_factor(
     if incident_type == "flood":
 
         table = {
-            ("road", "road"): 0.30,
-            ("road", "hospital"): 0.12,
-            ("road", "emergency"): 0.15,
-            ("road", "facility"): 0.10,
+            ("road", "road"): 0.45,
+            ("road", "hospital"): 0.25,
+            ("road", "emergency"): 0.30,
+            ("road", "facility"): 0.22,
+            ("road", "zone"): 0.20,
 
-            ("pump", "water"): 0.40,
-            ("water", "zone"): 0.20,
+            ("pump", "water"): 0.50,
+            ("water", "zone"): 0.30,
 
-            ("substation", "signal"): 0.25,
-            ("substation", "hospital"): 0.15,
+            ("substation", "signal"): 0.35,
+            ("substation", "hospital"): 0.25,
         }
 
         factor = table.get(
@@ -186,11 +190,11 @@ def _impact_factor(
     if incident_type == "accident":
 
         table = {
-            ("road", "road"): 0.35,
-            ("road", "hospital"): 0.14,
-            ("road", "emergency"): 0.20,
-            ("road", "facility"): 0.10,
-            ("road", "zone"): 0.08,
+            ("road", "road"): 0.50,
+            ("road", "hospital"): 0.25,
+            ("road", "emergency"): 0.30,
+            ("road", "facility"): 0.22,
+            ("road", "zone"): 0.20,
         }
 
         return table.get(
@@ -205,10 +209,12 @@ def _impact_factor(
     if incident_type == "bridge_failure":
 
         table = {
-            ("bridge", "road"): 0.55,
-            ("road", "road"): 0.25,
-            ("road", "hospital"): 0.12,
-            ("road", "emergency"): 0.18,
+            ("bridge", "road"): 0.65,
+            ("road", "road"): 0.45,
+            ("road", "hospital"): 0.25,
+            ("road", "emergency"): 0.30,
+            ("road", "facility"): 0.22,
+            ("road", "zone"): 0.20,
         }
 
         return table.get(
@@ -223,11 +229,11 @@ def _impact_factor(
     if incident_type == "fire":
 
         table = {
-            ("facility", "road"): 0.30,
-            ("road", "road"): 0.25,
-            ("road", "emergency"): 0.25,
-            ("road", "hospital"): 0.12,
-            ("road", "zone"): 0.15,
+            ("facility", "road"): 0.40,
+            ("road", "road"): 0.40,
+            ("road", "emergency"): 0.30,
+            ("road", "hospital"): 0.25,
+            ("road", "zone"): 0.25,
         }
 
         return table.get(
@@ -386,7 +392,6 @@ def _reroute_roads(nodes, severity):
                     }
                 )
 
-    # Failed signals add a small amount of traffic pressure.
     failed_signals = [
         n for n in nodes.values()
         if n["type"] == "signal"
@@ -491,10 +496,6 @@ def _event(
             1
         ),
 
-        # ---------------------------------------------------------
-        # Explanation fields for the frontend.
-        # ---------------------------------------------------------
-
         "cause_type": cause_type,
 
         "impact_factor": (
@@ -542,10 +543,6 @@ def _build_event_explanation(
         / max(target["capacity"], 1)
         * 100
     )
-
-    # -------------------------------------------------------------
-    # Human-readable mechanism.
-    # -------------------------------------------------------------
 
     mechanism_map = {
         ("substation", "signal"):
@@ -599,10 +596,6 @@ def _build_event_explanation(
         f"{source_name} propagated load pressure to {target_name}."
     )
 
-    # -------------------------------------------------------------
-    # Status transition explanation.
-    # -------------------------------------------------------------
-
     status_text = (
         f"{target_name} changed from "
         f"{previous_status.replace('_', ' ')} "
@@ -653,11 +646,9 @@ def simulate(
 
     interventions = interventions or []
 
-    # Preserve original loads.
     for node in nodes.values():
         node["baseline_load"] = node["current_load"]
 
-    # Apply interventions before simulation.
     _apply_interventions(
         nodes,
         interventions
@@ -789,22 +780,23 @@ def simulate(
             target,
         )
 
-        # Stronger propagation from failed assets.
         if parent["status"] == "failed":
-            factor *= 1.12
+            factor *= 1.25
 
         elif parent["status"] in (
             "critical",
             "near_failure"
         ):
-            factor *= 1.05
+            factor *= 1.15
 
-        # Controlled road-to-road propagation.
+        elif parent["status"] == "degraded":
+            factor *= 1.08
+
         if (
             source_type == "road"
             and target_type == "road"
         ):
-            factor *= 0.55
+            factor *= 0.85
 
         # ---------------------------------------------------------
         # APPLY LOAD
@@ -863,7 +855,7 @@ def simulate(
         )
 
         # ---------------------------------------------------------
-        # ONLY RECORD A REAL STATUS CHANGE
+        # RECORD STATUS CHANGE
         # ---------------------------------------------------------
 
         if target["status"] != previous_status:
@@ -894,10 +886,14 @@ def simulate(
             )
 
         # ---------------------------------------------------------
-        # PROPAGATE TO NEXT LEVEL
+        # CONTINUE CASCADE WHEN LOAD ACTUALLY PROPAGATES
         # ---------------------------------------------------------
 
-        if target["status"] != "operational":
+        meaningful_propagation = (
+            target["current_load"] > load_before + 0.5
+        )
+
+        if meaningful_propagation:
 
             for next_id in graph.successors(target_id):
 
@@ -1220,6 +1216,976 @@ def simulate(
         ],
     }
 
+
+# ---------------------------------------------------------------------
+# REVERSE / ROOT-CAUSE ANALYSIS
+# ---------------------------------------------------------------------
+
+def find_root_causes(
+    city,
+    incident_type,
+    target_asset_id,
+    severity=1.0,
+    duration=60,
+):
+    """
+    Reverse cascade analysis.
+
+    Starts from a target asset and walks backwards through the
+    dependency graph. Every upstream asset is tested as a possible
+    protection point by removing it from a copied network and
+    rerunning the forward cascade.
+
+    The result identifies:
+    - the target outcome
+    - upstream dependency paths
+    - what happens without protection
+    - what happens with protection
+    - the strongest single protection point
+    - a practical resilience action
+    """
+
+    if target_asset_id not in city:
+        raise ValueError(
+            f"Unknown target asset: {target_asset_id}"
+        )
+
+    if incident_type not in INCIDENT_START_RULES:
+        raise ValueError(
+            f"Unknown incident type: {incident_type}"
+        )
+
+    # -------------------------------------------------------------
+    # STATUS SEVERITY
+    # -------------------------------------------------------------
+
+    status_level = {
+        "operational": 0,
+        "degraded": 1,
+        "critical": 2,
+        "near_failure": 3,
+        "failed": 4,
+    }
+
+    def level(status):
+        return status_level.get(
+            status,
+            0
+        )
+
+    def readable_status(status):
+        return str(status).replace(
+            "_",
+            " "
+        ).title()
+
+    target_name = city.nodes[
+        target_asset_id
+    ]["data"]["name"]
+
+    # -------------------------------------------------------------
+    # FIND ALL UPSTREAM PATHS TO TARGET
+    # -------------------------------------------------------------
+
+    def upstream_paths(target_id):
+        paths = []
+
+        stack = [
+            (
+                target_id,
+                [target_id]
+            )
+        ]
+
+        visited_states = set()
+
+        while stack:
+
+            current_id, path = stack.pop()
+
+            state = (
+                current_id,
+                tuple(path)
+            )
+
+            if state in visited_states:
+                continue
+
+            visited_states.add(state)
+
+            predecessors = list(
+                city.predecessors(
+                    current_id
+                )
+            )
+
+            if not predecessors:
+
+                paths.append(
+                    list(reversed(path))
+                )
+
+                continue
+
+            for parent_id in predecessors:
+
+                if parent_id in path:
+                    continue
+
+                stack.append(
+                    (
+                        parent_id,
+                        path + [parent_id]
+                    )
+                )
+
+        return paths
+
+    all_paths = upstream_paths(
+        target_asset_id
+    )
+
+    # -------------------------------------------------------------
+    # POSSIBLE INCIDENT SOURCES
+    # -------------------------------------------------------------
+
+    seed_types = {
+        asset_type
+        for asset_type, pressure
+        in INCIDENT_START_RULES[
+            incident_type
+        ].items()
+        if pressure > 0
+    }
+
+    seed_ids = [
+        node_id
+        for node_id in city.nodes
+        if city.nodes[node_id]["data"]["type"]
+        in seed_types
+    ]
+
+    # -------------------------------------------------------------
+    # ONLY KEEP PATHS THAT START AT A VALID INCIDENT SOURCE
+    # -------------------------------------------------------------
+
+    valid_paths = [
+        path
+        for path in all_paths
+        if path
+        and path[0] in seed_ids
+    ]
+
+    # -------------------------------------------------------------
+    # IF NO FORMAL PATH EXISTS
+    # -------------------------------------------------------------
+
+    if not valid_paths:
+
+        return {
+            "target_asset_id":
+                target_asset_id,
+
+            "target_asset_name":
+                target_name,
+
+            "incident_type":
+                incident_type,
+
+            "severity":
+                severity,
+
+            "duration":
+                duration,
+
+            "solution": {
+                "available":
+                    False,
+
+                "asset_id":
+                    None,
+
+                "asset_name":
+                    None,
+
+                "asset_type":
+                    None,
+
+                "action":
+                    "No upstream dependency path found.",
+
+                "target_status_before":
+                    None,
+
+                "target_status_after":
+                    None,
+
+                "path":
+                    [],
+
+                "explanation":
+                    (
+                        f"No upstream incident path from a "
+                        f"valid {incident_type.replace('_', ' ')} "
+                        f"source reaches {target_name}."
+                    ),
+            },
+
+            "candidates":
+                [],
+
+            "root_causes":
+                [],
+        }
+
+    # -------------------------------------------------------------
+    # RUN A FORWARD SIMULATION FROM EVERY VALID SOURCE
+    # -------------------------------------------------------------
+
+    baseline_results = {}
+
+    for path in valid_paths:
+
+        seed_id = path[0]
+
+        if seed_id in baseline_results:
+            continue
+
+        result = simulate(
+            city,
+
+            incident_type=
+                incident_type,
+
+            asset_id=
+                seed_id,
+
+            severity=
+                severity,
+
+            duration=
+                duration,
+
+            interventions=[],
+        )
+
+        target = next(
+            (
+                node
+                for node in result["nodes"]
+                if node["id"]
+                == target_asset_id
+            ),
+            None
+        )
+
+        if target is None:
+            continue
+
+        baseline_results[
+            seed_id
+        ] = {
+            "result":
+                result,
+
+            "status":
+                target["status"],
+        }
+
+    # -------------------------------------------------------------
+    # ONLY ANALYZE SOURCES WHERE TARGET IS ACTUALLY AFFECTED
+    # -------------------------------------------------------------
+
+    affected_sources = {
+        seed_id: data
+        for seed_id, data
+        in baseline_results.items()
+        if level(
+            data["status"]
+        ) >= 2
+    }
+
+    # If the target is not critical in this scenario,
+    # return that honestly.
+    if not affected_sources:
+
+        current_status = (
+            next(
+                (
+                    data["status"]
+                    for data
+                    in baseline_results.values()
+                ),
+                "operational"
+            )
+        )
+
+        return {
+            "target_asset_id":
+                target_asset_id,
+
+            "target_asset_name":
+                target_name,
+
+            "incident_type":
+                incident_type,
+
+            "severity":
+                severity,
+
+            "duration":
+                duration,
+
+            "solution": {
+                "available":
+                    False,
+
+                "asset_id":
+                    None,
+
+                "asset_name":
+                    None,
+
+                "asset_type":
+                    None,
+
+                "action":
+                    "No critical outcome detected.",
+
+                "target_status_before":
+                    current_status,
+
+                "target_status_after":
+                    current_status,
+
+                "path":
+                    [],
+
+                "explanation":
+                    (
+                        f"{target_name} reaches "
+                        f"{readable_status(current_status)} "
+                        f"under the current scenario, so there "
+                        f"is no critical outcome to reverse."
+                    ),
+            },
+
+            "candidates":
+                [],
+
+            "root_causes":
+                [],
+        }
+
+    # -------------------------------------------------------------
+    # BUILD CANDIDATE LIST
+    # -------------------------------------------------------------
+
+    candidate_paths = {}
+
+    for path in valid_paths:
+
+        seed_id = path[0]
+
+        if seed_id not in affected_sources:
+            continue
+
+        # Exclude the target itself.
+        for index, node_id in enumerate(
+            path[:-1]
+        ):
+
+            downstream_path = path[
+                index:
+            ]
+
+            candidate_paths.setdefault(
+                node_id,
+                []
+            ).append(
+                downstream_path
+            )
+
+    # -------------------------------------------------------------
+    # TEST EVERY UPSTREAM CANDIDATE
+    # -------------------------------------------------------------
+
+    candidates = []
+
+    for candidate_id, paths in candidate_paths.items():
+
+        candidate = city.nodes[
+            candidate_id
+        ]["data"]
+
+        relevant_cases = 0
+        prevented_cases = 0
+        total_improvement = 0
+
+        test_cases = []
+
+        for seed_id, baseline in affected_sources.items():
+
+            matching_paths = [
+                path
+                for path in paths
+                if path[0] == seed_id
+            ]
+
+            if not matching_paths:
+                continue
+
+            relevant_cases += 1
+
+            without_status = baseline[
+                "status"
+            ]
+
+            # -----------------------------------------------------
+            # PROTECTION TEST
+            # -----------------------------------------------------
+
+            if candidate_id == seed_id:
+
+                # Protecting the incident source means the
+                # initial incident never enters the network.
+                with_status = "operational"
+
+            else:
+
+                protected_city = city.copy()
+
+                if candidate_id in protected_city:
+
+                    protected_city.remove_node(
+                        candidate_id
+                    )
+
+                protected_result = simulate(
+                    protected_city,
+
+                    incident_type=
+                        incident_type,
+
+                    asset_id=
+                        seed_id,
+
+                    severity=
+                        severity,
+
+                    duration=
+                        duration,
+
+                    interventions=[],
+                )
+
+                protected_target = next(
+                    (
+                        node
+                        for node
+                        in protected_result["nodes"]
+                        if node["id"]
+                        == target_asset_id
+                    ),
+                    None
+                )
+
+                if protected_target is None:
+
+                    with_status = "operational"
+
+                else:
+
+                    with_status = (
+                        protected_target[
+                            "status"
+                        ]
+                    )
+
+            improvement = max(
+                0,
+                level(
+                    without_status
+                )
+                -
+                level(
+                    with_status
+                )
+            )
+
+            total_improvement += (
+                improvement
+            )
+
+            prevented = (
+                level(
+                    with_status
+                ) < 2
+            )
+
+            if prevented:
+                prevented_cases += 1
+
+            test_cases.append(
+                {
+                    "seed_id":
+                        seed_id,
+
+                    "without_protection":
+                        without_status,
+
+                    "with_protection":
+                        with_status,
+
+                    "prevented":
+                        prevented,
+                }
+            )
+
+        if relevant_cases == 0:
+            continue
+
+        # ---------------------------------------------------------
+        # CHOOSE REPRESENTATIVE CASE
+        # ---------------------------------------------------------
+
+        representative_case = max(
+            test_cases,
+
+            key=lambda case:
+                (
+                    level(
+                        case[
+                            "without_protection"
+                        ]
+                    ),
+
+                    level(
+                        case[
+                            "without_protection"
+                        ]
+                    )
+                    -
+                    level(
+                        case[
+                            "with_protection"
+                        ]
+                    ),
+                )
+        )
+
+        representative_seed = (
+            representative_case[
+                "seed_id"
+            ]
+        )
+
+        representative_paths = [
+            path
+            for path in paths
+            if path[0]
+            == representative_seed
+        ]
+
+        if not representative_paths:
+            continue
+
+        # Prefer the shortest dependency path.
+        representative_path = min(
+            representative_paths,
+            key=len
+        )
+
+        # ---------------------------------------------------------
+        # ACTION
+        # ---------------------------------------------------------
+
+        action_map = {
+
+            "substation":
+                (
+                    "Protect this substation with resilient "
+                    "backup power so it cannot become a "
+                    "single point of failure."
+                ),
+
+            "signal":
+                (
+                    "Add backup traffic-signal power so "
+                    "this signal remains operational during "
+                    "a power disruption."
+                ),
+
+            "road":
+                (
+                    "Increase corridor capacity or create "
+                    "an alternative emergency route."
+                ),
+
+            "bridge":
+                (
+                    "Create a redundant crossing or "
+                    "alternative route around this bridge."
+                ),
+
+            "pump":
+                (
+                    "Add pump redundancy so downstream "
+                    "water service remains available."
+                ),
+
+            "water":
+                (
+                    "Add water-system redundancy for "
+                    "downstream service continuity."
+                ),
+
+            "hospital":
+                (
+                    "Add backup hospital power and "
+                    "service redundancy."
+                ),
+
+            "emergency":
+                (
+                    "Add an alternative emergency route "
+                    "and response capacity."
+                ),
+
+            "facility":
+                (
+                    "Add resilient facility access and "
+                    "alternative service capacity."
+                ),
+
+            "control":
+                (
+                    "Add resilient backup power and "
+                    "control-system redundancy."
+                ),
+
+            "zone":
+                (
+                    "Provide alternative service and "
+                    "access capacity for this zone."
+                ),
+            }
+
+        action = action_map.get(
+            candidate["type"],
+            (
+                f"Protect {candidate['name']} "
+                f"from becoming a single point of failure."
+            )
+        )
+
+        protection_effective = (
+            level(
+                representative_case[
+                    "with_protection"
+                ]
+            ) < 2
+        )
+
+        # ---------------------------------------------------------
+        # EXPLANATION
+        # ---------------------------------------------------------
+
+        if protection_effective:
+
+            explanation = (
+                f"{candidate['name']} sits upstream of "
+                f"{target_name}. Without protection, "
+                f"{target_name} reaches "
+                f"{readable_status(representative_case['without_protection'])}. "
+                f"When {candidate['name']} is protected, "
+                f"the target changes to "
+                f"{readable_status(representative_case['with_protection'])}. "
+                f"This breaks the simulated dependency chain "
+                f"before it reaches the target."
+            )
+
+        else:
+
+            explanation = (
+                f"{candidate['name']} sits upstream of "
+                f"{target_name}. Protecting it changes the "
+                f"target from "
+                f"{readable_status(representative_case['without_protection'])} "
+                f"to "
+                f"{readable_status(representative_case['with_protection'])}, "
+                f"but another dependency path still keeps the "
+                f"target at or above the critical threshold."
+            )
+
+        candidates.append(
+            {
+                "asset_id":
+                    candidate_id,
+
+                "asset_name":
+                    candidate["name"],
+
+                "asset_type":
+                    candidate["type"],
+
+                "path":
+                    representative_path,
+
+                "target_status_without_protection":
+                    representative_case[
+                        "without_protection"
+                    ],
+
+                "target_status_with_protection":
+                    representative_case[
+                        "with_protection"
+                    ],
+
+                "prevented_seed_cases":
+                    prevented_cases,
+
+                "relevant_seed_cases":
+                    relevant_cases,
+
+                "status_improvement":
+                    total_improvement,
+
+                "protection_effective":
+                    protection_effective,
+
+                "action":
+                    action,
+
+                "explanation":
+                    explanation,
+
+                "cases":
+                    test_cases,
+            }
+        )
+
+    # -------------------------------------------------------------
+    # RANK
+    # -------------------------------------------------------------
+
+    candidates.sort(
+        key=lambda item: (
+            item[
+                "protection_effective"
+            ],
+
+            item[
+                "prevented_seed_cases"
+            ],
+
+            item[
+                "status_improvement"
+            ],
+
+            item[
+                "relevant_seed_cases"
+            ],
+
+            -len(
+                item["path"]
+            ),
+        ),
+
+        reverse=True,
+    )
+
+    for rank, candidate in enumerate(
+        candidates,
+        start=1
+    ):
+
+        candidate["rank"] = rank
+
+    # -------------------------------------------------------------
+    # BEST SOLUTION
+    # -------------------------------------------------------------
+
+    effective_candidates = [
+        candidate
+        for candidate in candidates
+        if candidate[
+            "protection_effective"
+        ]
+    ]
+
+    if effective_candidates:
+
+        recommended = (
+            effective_candidates[0]
+        )
+
+        solution = {
+            "available":
+                True,
+
+            "asset_id":
+                recommended[
+                    "asset_id"
+                ],
+
+            "asset_name":
+                recommended[
+                    "asset_name"
+                ],
+
+            "asset_type":
+                recommended[
+                    "asset_type"
+                ],
+
+            "action":
+                recommended[
+                    "action"
+                ],
+
+            "target_status_before":
+                recommended[
+                    "target_status_without_protection"
+                ],
+
+            "target_status_after":
+                recommended[
+                    "target_status_with_protection"
+                ],
+
+            "path":
+                recommended[
+                    "path"
+                ],
+
+            "explanation":
+                recommended[
+                    "explanation"
+                ],
+        }
+
+    elif candidates:
+
+        recommended = candidates[0]
+
+        solution = {
+            "available":
+                False,
+
+            "asset_id":
+                recommended[
+                    "asset_id"
+                ],
+
+            "asset_name":
+                recommended[
+                    "asset_name"
+                ],
+
+            "asset_type":
+                recommended[
+                    "asset_type"
+                ],
+
+            "action":
+                recommended[
+                    "action"
+                ],
+
+            "target_status_before":
+                recommended[
+                    "target_status_without_protection"
+                ],
+
+            "target_status_after":
+                recommended[
+                    "target_status_with_protection"
+                ],
+
+            "path":
+                recommended[
+                    "path"
+                ],
+
+            "explanation":
+                (
+                    f"No single upstream asset completely "
+                    f"prevents {target_name} from reaching "
+                    f"a critical state. The strongest available "
+                    f"protection point is "
+                    f"{recommended['asset_name']} "
+                    f"({recommended['asset_id']}), which reduces "
+                    f"the target from "
+                    f"{readable_status(recommended['target_status_without_protection'])} "
+                    f"to "
+                    f"{readable_status(recommended['target_status_with_protection'])}."
+                ),
+        }
+
+    else:
+
+        solution = {
+            "available":
+                False,
+
+            "asset_id":
+                None,
+
+            "asset_name":
+                None,
+
+            "asset_type":
+                None,
+
+            "action":
+                "No upstream protection point identified.",
+
+            "target_status_before":
+                None,
+
+            "target_status_after":
+                None,
+
+            "path":
+                [],
+
+            "explanation":
+                (
+                    f"No upstream candidate could be tested "
+                    f"for {target_name}."
+                ),
+        }
+
+    # -------------------------------------------------------------
+    # FINAL RESPONSE
+    # -------------------------------------------------------------
+
+    return {
+        "target_asset_id":
+            target_asset_id,
+
+        "target_asset_name":
+            target_name,
+
+        "incident_type":
+            incident_type,
+
+        "severity":
+            severity,
+
+        "duration":
+            duration,
+
+        "solution":
+            solution,
+
+        "candidates":
+            candidates,
+
+        "root_causes":
+            candidates,
+    }
 
 # ---------------------------------------------------------------------
 # BASELINE VS INTERVENTION
